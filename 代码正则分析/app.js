@@ -2,13 +2,14 @@ var fs = require('fs');
 var path = require("path");
 var async = require('async');
 var lei = require('lei-stream');
-const readLine = require('lei-stream').readLine;
+var readLine = require('lei-stream').readLine;
 
-var root = path.join("/Users/liyufeng/git/gogs/JianKangJie");
+var root = path.join("/Users/caicai/git/hmkx/jiankangjie");
 var allfiles = [];
 var inherits = {};//继承关系表 类名称：类名称
+var presents = {};//跳转关系
+var pushs = {};
 var implementations = [];//主要类
-var imports = {};//引用关系 文件名：引用文件数组
 
 readDirSync(root,allfiles);
 
@@ -37,26 +38,97 @@ function analysisAll(files) {
             cb(err);
         });
     },function (err) {
-        console.log(err);
+        // console.log(err);
+        // console.log(implementations,inherits);
+        var allControllers = implementations.filter(function (value) {
+            var superC = inherits[value]
+            while (superC != null){
+                if (superC == 'UIViewController'){
+                    return true;
+                }
+                superC = inherits[superC];
+            }
+            return false;
+        });
+        // console.log(allControllers,presents,pushs);
+        logJsonTocvs(pushs);
     })
 }
 
 function analysis(file,cb) {
-    console.log(file);
-    const s = readLine(fs.createReadStream(file), {
+    // console.log(file);
+    var s = readLine(fs.createReadStream(file), {
         newline: '\n',
         autoNext: false
     });
-    s.on('data', (data) => {
-        // console.log(data);
+    var localValues = {};
+    var localImplementation = [];
+    var localPresents = [];
+    var localPushs = [];
+    s.on('data', function (data) {
+        regExp = /@implementation[\s]*([\w]*)/g; //使用g选项
+        res = regExp .exec(data);
+        if (res) {
+            implementations.push(res[1]);
+            localImplementation.push(res[1]);
+        }
+
+        regExp = /@interface[\s]*([\w]*)[\s]*:[\s]*([\w]*)(<[\s]*([\S]*)[\s]*>)?/g; //使用g选项
+        res = regExp .exec(data);
+        if (res) {
+            inherits[res[1]] = res[2];
+        }
+
+        regExp = /[\s]*([\w]*)[\s]*\*[\s]*([\w]*)/g; //使用g选项
+        res = regExp .exec(data);
+        if (res) {
+            if (res.length>2 && res[1].length>0 && res[2].length>0) {
+                localValues[res[2]] = res[1];
+            }
+        }
+
+        regExp = /[\s]*([\S]*)[\s]*presentViewController[\s]*:[\s]*([\w]*)[\s]*animated[\s]*:[\s]*([\w]*)[\s]*completion[\s]*:/g; //使用g选项
+        res = regExp .exec(data);
+        if (res) {
+            localPresents.push(localValues[res[2]]);
+        }
+
+        regExp = /[\s]*([\S]*)[\s]*pushViewController[\s]*:[\s]*([\w]*)[\s]*animated[\s]*:[\s]*([\w]*)[\s]*/g; //使用g选项
+        res = regExp .exec(data);
+        if (res) {
+            localPushs.push(localValues[res[2]]);
+        }
+
         s.next();
     });
-    s.on('end', () => {
-        console.log('end');
+    s.on('end', function() {
+        // console.log('end');
         cb();
+        if (localImplementation.length && localPresents.length){
+            if (localPresents.length){
+                presents[localImplementation[localImplementation.length-1]]=localPresents;
+            }
+            if (localPushs.length){
+                pushs[localImplementation[localImplementation.length-1]]=localPushs;
+            }
+        }
     });
-    s.on('error', (err) => {
+    s.on('error', function(err) {
         console.error(err);
         cb(err);
     });
+}
+
+function logJsonTocvs(jsonModel) {
+    if (Array.isArray(jsonModel)){
+        for (var i=0;i<jsonModel.length;i++){
+            console.log(jsonModel[i]);
+        }
+    } else {
+        for(var key in jsonModel){
+            var str = ''+jsonModel[key];
+            str = str.replace(/\,/g," ");
+            console.log(key+','+str);
+        }
+    }
 }
